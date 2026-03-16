@@ -1,6 +1,6 @@
 import { KnowledgeGraph, GraphNode, GraphRelationship } from '../graph/types.js';
 import Parser from 'tree-sitter';
-import { loadParser, loadLanguage } from '../tree-sitter/parser-loader.js';
+import { loadParser, loadLanguage, isLanguageAvailable } from '../tree-sitter/parser-loader.js';
 import { LANGUAGE_QUERIES } from './tree-sitter-queries.js';
 import { generateId } from '../../lib/utils.js';
 import { SymbolTable } from './symbol-table.js';
@@ -110,6 +110,7 @@ const processParsingSequential = async (
 ) => {
   const parser = await loadParser();
   const total = files.length;
+  const skippedLanguages = new Map<string, number>();
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -122,13 +123,19 @@ const processParsingSequential = async (
 
     if (!language) continue;
 
+    // Skip unsupported languages (e.g. Swift when tree-sitter-swift not installed)
+    if (!isLanguageAvailable(language)) {
+      skippedLanguages.set(language, (skippedLanguages.get(language) || 0) + 1);
+      continue;
+    }
+
     // Skip files larger than the max tree-sitter buffer (32 MB)
     if (file.content.length > TREE_SITTER_MAX_BUFFER) continue;
 
     try {
       await loadLanguage(language, file.path);
     } catch {
-      continue;  // parser unavailable — already warned in pipeline
+      continue;  // parser unavailable — safety net
     }
 
     let tree;
@@ -285,6 +292,13 @@ const processParsingSequential = async (
         });
       }
     });
+  }
+
+  if (skippedLanguages.size > 0) {
+    const summary = Array.from(skippedLanguages.entries())
+      .map(([lang, count]) => `${lang}: ${count}`)
+      .join(', ');
+    console.warn(`  Skipped unsupported languages: ${summary}`);
   }
 };
 

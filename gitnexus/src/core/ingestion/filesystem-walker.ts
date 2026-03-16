@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { glob } from 'glob';
-import { shouldIgnorePath } from '../../config/ignore-service.js';
+import { shouldIgnorePath, loadUserIgnore } from '../../config/ignore-service.js';
 
 export interface FileEntry {
   path: string;
@@ -32,6 +32,8 @@ export const walkRepositoryPaths = async (
   repoPath: string,
   onProgress?: (current: number, total: number, filePath: string) => void
 ): Promise<ScannedFile[]> => {
+  loadUserIgnore(repoPath);
+
   const files = await glob('**/*', {
     cwd: repoPath,
     nodir: true,

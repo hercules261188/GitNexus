@@ -1,3 +1,34 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { createRequire } from 'node:module';
+const _require = createRequire(import.meta.url);
+const ignore = _require('ignore');
+
+let userIgnore: ReturnType<typeof ignore> | null = null;
+let userIgnoreLoaded = false;
+
+/**
+ * Load .gitnexusignore from repo root (lazy, cached).
+ * Uses the `ignore` npm package for full .gitignore glob spec compliance.
+ */
+export const loadUserIgnore = (repoPath: string): void => {
+  if (userIgnoreLoaded) return;
+  userIgnoreLoaded = true;
+  const ignorePath = path.join(repoPath, '.gitnexusignore');
+  try {
+    const content = fs.readFileSync(ignorePath, 'utf-8');
+    userIgnore = ignore().add(content);
+  } catch {
+    // No .gitnexusignore file — that's fine
+  }
+};
+
+/** Reset cache (for tests). */
+export const resetUserIgnore = (): void => {
+  userIgnore = null;
+  userIgnoreLoaded = false;
+};
+
 const DEFAULT_IGNORE_LIST = new Set([
     // Version Control
     '.git',
@@ -231,6 +262,11 @@ export const shouldIgnorePath = (filePath: string): boolean => {
       fileNameLower.includes('.chunk.') ||
       fileNameLower.includes('.generated.') ||
       fileNameLower.endsWith('.d.ts')) { // TypeScript declaration files
+    return true;
+  }
+
+  // Check user-defined .gitnexusignore patterns
+  if (userIgnore?.ignores(normalizedPath)) {
     return true;
   }
 

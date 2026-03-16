@@ -171,6 +171,17 @@ const languageMap: Record<string, any> = {
   ...(Swift ? { [SupportedLanguages.Swift]: Swift } : {}),
 };
 
+/**
+ * Check if a language grammar is available in this worker.
+ * Duplicated from parser-loader.ts because workers can't import from the main thread.
+ */
+const isLanguageAvailable = (language: SupportedLanguages, filePath: string): boolean => {
+  const key = language === SupportedLanguages.TypeScript && filePath.endsWith('.tsx')
+    ? `${language}:tsx`
+    : language;
+  return key in languageMap && languageMap[key] != null;
+};
+
 const setLanguage = (language: SupportedLanguages, filePath: string): void => {
   const key = language === SupportedLanguages.TypeScript && filePath.endsWith('.tsx')
     ? `${language}:tsx`
@@ -302,6 +313,7 @@ const processBatch = (files: ParseWorkerInput[], onProgress?: (filesProcessed: n
 
     // Process regular files for this language
     if (regularFiles.length > 0) {
+      if (!isLanguageAvailable(language, regularFiles[0].path)) continue;
       try {
         setLanguage(language, regularFiles[0].path);
         processFileGroup(regularFiles, language, queryString, result, onFileProcessed);
@@ -312,6 +324,7 @@ const processBatch = (files: ParseWorkerInput[], onProgress?: (filesProcessed: n
 
     // Process tsx files separately (different grammar)
     if (tsxFiles.length > 0) {
+      if (!isLanguageAvailable(language, tsxFiles[0].path)) continue;
       try {
         setLanguage(language, tsxFiles[0].path);
         processFileGroup(tsxFiles, language, queryString, result, onFileProcessed);
