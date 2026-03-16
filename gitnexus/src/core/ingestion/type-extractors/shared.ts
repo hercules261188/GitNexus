@@ -1,5 +1,43 @@
 import type { SyntaxNode } from '../utils.js';
 
+/**
+ * Shared 3-strategy fallback for resolving the element type of a container variable.
+ * Used by all for-loop extractors to resolve the loop variable's type from the iterable.
+ *
+ * Strategy 1: declarationTypeNodes — raw AST type annotation node (handles container types
+ *             where extractSimpleTypeName returned undefined, e.g., User[], List[User])
+ * Strategy 2: scopeEnv string — extractElementTypeFromString on the stored type string
+ * Strategy 3: AST walk — language-specific upward walk to enclosing function parameters
+ *
+ * @param extractFromTypeNode Language-specific function to extract element type from AST node
+ * @param findParamElementType Optional language-specific AST walk to find parameter type
+ */
+export function resolveIterableElementType(
+  iterableName: string,
+  node: SyntaxNode,
+  scopeEnv: ReadonlyMap<string, string>,
+  declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  scope: string,
+  extractFromTypeNode: (typeNode: SyntaxNode) => string | undefined,
+  findParamElementType?: (name: string, startNode: SyntaxNode) => string | undefined,
+): string | undefined {
+  // Strategy 1: declarationTypeNodes AST node
+  const typeNode = declarationTypeNodes.get(`${scope}\0${iterableName}`);
+  if (typeNode) {
+    const t = extractFromTypeNode(typeNode);
+    if (t) return t;
+  }
+  // Strategy 2: scopeEnv string → extractElementTypeFromString
+  const iterableType = scopeEnv.get(iterableName);
+  if (iterableType) {
+    const el = extractElementTypeFromString(iterableType);
+    if (el) return el;
+  }
+  // Strategy 3: AST walk to function parameters
+  if (findParamElementType) return findParamElementType(iterableName, node);
+  return undefined;
+}
+
 /** Known single-arg nullable wrapper types that unwrap to their inner type
  *  for receiver resolution. Optional<User> → "User", Option<User> → "User".
  *  Only nullable wrappers — NOT containers (List, Vec) or async wrappers (Promise, Future).

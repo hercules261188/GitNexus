@@ -90,7 +90,12 @@ const JAVA_FOR_LOOP_NODE_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /** Java: for (User user : users) — extract loop variable binding */
-const extractJavaForLoopBinding: ForLoopExtractor = (node: SyntaxNode, scopeEnv: Map<string, string>): void => {
+const extractJavaForLoopBinding: ForLoopExtractor = (
+  node: SyntaxNode,
+  scopeEnv: Map<string, string>,
+  _declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  _scope: string,
+): void => {
   const typeNode = node.childForFieldName('type');
   const nameNode = node.childForFieldName('name');
   if (!typeNode || !nameNode) return;
@@ -281,7 +286,12 @@ const KOTLIN_FOR_LOOP_NODE_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /** Kotlin: for (user: User in users) — extract loop variable binding when explicit type annotation exists */
-const extractKotlinForLoopBinding: ForLoopExtractor = (node: SyntaxNode, scopeEnv: Map<string, string>): void => {
+const extractKotlinForLoopBinding: ForLoopExtractor = (
+  node: SyntaxNode,
+  scopeEnv: Map<string, string>,
+  _declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  _scope: string,
+): void => {
   // Kotlin loop variable: variable_declaration child with optional user_type annotation
   const varDecl = findChildByType(node, 'variable_declaration');
   if (!varDecl) return;

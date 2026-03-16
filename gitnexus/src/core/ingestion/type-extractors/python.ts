@@ -1,6 +1,6 @@
 import type { SyntaxNode } from '../utils.js';
 import type { LanguageTypeConfig, ParameterExtractor, TypeBindingExtractor, InitializerExtractor, ClassNameLookup, ConstructorBindingScanner, PendingAssignmentExtractor, PatternBindingExtractor, ForLoopExtractor } from './types.js';
-import { extractSimpleTypeName, extractVarName, extractElementTypeFromString, extractGenericTypeArgs } from './shared.js';
+import { extractSimpleTypeName, extractVarName, extractElementTypeFromString, extractGenericTypeArgs, resolveIterableElementType } from './shared.js';
 
 const DECLARATION_NODE_TYPES: ReadonlySet<string> = new Set([
   'assignment',
@@ -215,8 +215,8 @@ const findPyParamElementType = (iterableName: string, startNode: SyntaxNode): st
 const extractForLoopBinding: ForLoopExtractor = (
   node: SyntaxNode,
   scopeEnv: Map<string, string>,
-  declarationTypeNodes?: ReadonlyMap<string, SyntaxNode>,
-  scope?: string,
+  declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  scope: string,
 ): void => {
   if (node.type !== 'for_statement') return;
 
@@ -225,27 +225,10 @@ const extractForLoopBinding: ForLoopExtractor = (
   if (!rightNode || rightNode.type !== 'identifier') return;
   const iterableName = rightNode.text;
 
-  let elementType: string | undefined;
-
-  // Strategy 1: declarationTypeNodes — raw type annotation node
-  if (!elementType && declarationTypeNodes && scope) {
-    const typeAnnotationNode = declarationTypeNodes.get(`${scope}\0${iterableName}`);
-    if (typeAnnotationNode) {
-      elementType = extractPyElementTypeFromAnnotation(typeAnnotationNode);
-    }
-  }
-
-  // Strategy 2: scopeEnv string — for locally declared vars with container type strings
-  if (!elementType) {
-    const iterableType = scopeEnv.get(iterableName);
-    if (iterableType) elementType = extractElementTypeFromString(iterableType);
-  }
-
-  // Strategy 3: AST walk — for List[User] parameters where extractSimpleTypeName returned undefined
-  if (!elementType) {
-    elementType = findPyParamElementType(iterableName, node);
-  }
-
+  const elementType = resolveIterableElementType(
+    iterableName, node, scopeEnv, declarationTypeNodes, scope,
+    extractPyElementTypeFromAnnotation, findPyParamElementType,
+  );
   if (!elementType) return;
 
   // The loop variable is the `left` field — a plain identifier.

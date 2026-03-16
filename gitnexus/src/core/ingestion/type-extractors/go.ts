@@ -1,6 +1,6 @@
 import type { SyntaxNode } from '../utils.js';
 import type { ConstructorBindingScanner, ForLoopExtractor, LanguageTypeConfig, ParameterExtractor, TypeBindingExtractor, PendingAssignmentExtractor } from './types.js';
-import { extractSimpleTypeName, extractVarName, extractElementTypeFromString, findChildByType } from './shared.js';
+import { extractSimpleTypeName, extractVarName, extractElementTypeFromString, findChildByType, resolveIterableElementType } from './shared.js';
 
 const DECLARATION_NODE_TYPES: ReadonlySet<string> = new Set([
   'var_declaration',
@@ -283,8 +283,8 @@ const findGoParamElementType = (iterableName: string, startNode: SyntaxNode): st
 const extractForLoopBinding: ForLoopExtractor = (
   node: SyntaxNode,
   scopeEnv: Map<string, string>,
-  declarationTypeNodes?: ReadonlyMap<string, SyntaxNode>,
-  scope?: string,
+  declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  scope: string,
 ): void => {
   if (node.type !== 'for_statement') return;
 
@@ -304,27 +304,10 @@ const extractForLoopBinding: ForLoopExtractor = (
   if (!rightNode || rightNode.type !== 'identifier') return;
   const iterableName = rightNode.text;
 
-  let elementType: string | undefined;
-
-  // Strategy 1: declarationTypeNodes — raw type annotation node (covers var decls with known types)
-  if (!elementType && declarationTypeNodes && scope) {
-    const typeAnnotationNode = declarationTypeNodes.get(`${scope}\0${iterableName}`);
-    if (typeAnnotationNode) {
-      elementType = extractGoElementTypeFromTypeNode(typeAnnotationNode);
-    }
-  }
-
-  // Strategy 2: scopeEnv string — for locally declared vars where the type was stored
-  if (!elementType) {
-    const iterableType = scopeEnv.get(iterableName);
-    if (iterableType) elementType = extractElementTypeFromString(iterableType);
-  }
-
-  // Strategy 3: AST walk — for []User parameters where extractSimpleTypeName returned undefined
-  if (!elementType) {
-    elementType = findGoParamElementType(iterableName, node);
-  }
-
+  const elementType = resolveIterableElementType(
+    iterableName, node, scopeEnv, declarationTypeNodes, scope,
+    extractGoElementTypeFromTypeNode, findGoParamElementType,
+  );
   if (!elementType) return;
 
   // The loop variable(s) are in the `left` field.

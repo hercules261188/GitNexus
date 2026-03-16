@@ -24,12 +24,14 @@ export type ConstructorBindingScanner = (node: SyntaxNode) => { varName: string;
  *  rather than in AST fields. Returns undefined if no return type can be determined. */
 export type ReturnTypeExtractor = (node: SyntaxNode) => string | undefined;
 
-/** Extracts loop variable type binding from a for-each statement. */
+/** Extracts loop variable type binding from a for-each statement.
+ *  All parameters are required (aligned with PatternBindingExtractor convention)
+ *  to prevent new extractors from silently ignoring declarationTypeNodes/scope. */
 export type ForLoopExtractor = (
   node: SyntaxNode,
   scopeEnv: Map<string, string>,
-  declarationTypeNodes?: ReadonlyMap<string, SyntaxNode>,
-  scope?: string,
+  declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  scope: string,
 ) => void;
 
 /** Extracts a plain-identifier assignment for Tier 2 propagation.

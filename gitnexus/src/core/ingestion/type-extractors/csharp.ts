@@ -132,7 +132,12 @@ const FOR_LOOP_NODE_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /** C#: foreach (User user in users) — extract loop variable binding */
-const extractForLoopBinding: ForLoopExtractor = (node: SyntaxNode, scopeEnv: Map<string, string>): void => {
+const extractForLoopBinding: ForLoopExtractor = (
+  node: SyntaxNode,
+  scopeEnv: Map<string, string>,
+  _declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  _scope: string,
+): void => {
   const typeNode = node.childForFieldName('type');
   // The loop variable name is in the 'left' field in tree-sitter-c-sharp
   const nameNode = node.childForFieldName('left');

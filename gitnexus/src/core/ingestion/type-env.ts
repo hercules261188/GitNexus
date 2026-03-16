@@ -3,7 +3,7 @@ import { FUNCTION_NODE_TYPES, extractFunctionName, CLASS_CONTAINER_TYPES } from 
 import { SupportedLanguages } from '../../config/supported-languages.js';
 import { typeConfigs, TYPED_PARAMETER_TYPES } from './type-extractors/index.js';
 import type { ClassNameLookup } from './type-extractors/types.js';
-import { extractSimpleTypeName, stripNullable } from './type-extractors/shared.js';
+import { extractSimpleTypeName, extractVarName, stripNullable } from './type-extractors/shared.js';
 import type { SymbolTable } from './symbol-table.js';
 
 /**
@@ -297,6 +297,9 @@ export const buildTypeEnv = (
   // Maps `scope\0varName` → the type annotation AST node from the original declaration.
   // Allows pattern extractors to navigate back to the declaration's generic type arguments
   // (e.g., to extract T from Result<T, E> for `if let Ok(x) = res`).
+  // NOTE: This is a SUPERSET of scopeEnv — entries exist even when extractSimpleTypeName
+  // returns undefined for container types (User[], []User, List[User]). This is intentional:
+  // for-loop Strategy 1 needs the raw AST type node for exactly those container types.
   const declarationTypeNodes = new Map<string, SyntaxNode>();
 
   /**
@@ -314,17 +317,19 @@ export const buildTypeEnv = (
   const extractTypeBinding = (node: SyntaxNode, scopeEnv: Map<string, string>, scope: string): void => {
     // This guard eliminates 90%+ of calls before any language dispatch.
     if (TYPED_PARAMETER_TYPES.has(node.type)) {
-      const keysBefore = new Set(scopeEnv.keys());
-      config.extractParameter(node, scopeEnv);
-      // Capture the type node for newly introduced parameter bindings
+      // Capture the raw type annotation BEFORE extractParameter — parameters
+      // consistently expose 'name' and 'type' fields across all languages.
       const typeNode = node.childForFieldName('type');
       if (typeNode) {
-        for (const varName of scopeEnv.keys()) {
-          if (!keysBefore.has(varName)) {
+        const nameNode = node.childForFieldName('name');
+        if (nameNode) {
+          const varName = extractVarName(nameNode);
+          if (varName && !declarationTypeNodes.has(`${scope}\0${varName}`)) {
             declarationTypeNodes.set(`${scope}\0${varName}`, typeNode);
           }
         }
       }
+      config.extractParameter(node, scopeEnv);
       return;
     }
     // For-each loop variable bindings (Java/C#/Kotlin): explicit element types in the AST.
@@ -334,15 +339,31 @@ export const buildTypeEnv = (
       return;
     }
     if (config.declarationNodeTypes.has(node.type)) {
-      const keysBefore = new Set(scopeEnv.keys());
-      config.extractDeclaration(node, scopeEnv);
-      // Capture the type annotation AST node for newly introduced bindings.
-      // Only declarations with an explicit 'type' field are recorded — constructor
-      // inferences (Tier 1) don't have a type annotation node to preserve.
+      // Capture the raw type annotation AST node BEFORE extractDeclaration.
+      // This decouples type node capture from scopeEnv success — container types
+      // (User[], []User, List[User]) that fail extractSimpleTypeName still get
+      // their AST type node recorded for Strategy 1 for-loop resolution.
+      // Try direct extraction first (works for Go var_spec, Python assignment, Rust let_declaration).
       const typeNode = node.childForFieldName('type');
       if (typeNode) {
+        const nameNode = node.childForFieldName('name')
+          ?? node.childForFieldName('left')
+          ?? node.childForFieldName('pattern');
+        if (nameNode) {
+          const varName = extractVarName(nameNode);
+          if (varName && !declarationTypeNodes.has(`${scope}\0${varName}`)) {
+            declarationTypeNodes.set(`${scope}\0${varName}`, typeNode);
+          }
+        }
+      }
+      // Run the language-specific declaration extractor (may or may not add to scopeEnv).
+      const keysBefore = new Set(scopeEnv.keys());
+      config.extractDeclaration(node, scopeEnv);
+      // Fallback: for multi-declarator languages (TS, C#, Java) where the type field
+      // is on variable_declarator children, capture via keysBefore/keysAfter diff.
+      if (typeNode) {
         for (const varName of scopeEnv.keys()) {
-          if (!keysBefore.has(varName)) {
+          if (!keysBefore.has(varName) && !declarationTypeNodes.has(`${scope}\0${varName}`)) {
             declarationTypeNodes.set(`${scope}\0${varName}`, typeNode);
           }
         }

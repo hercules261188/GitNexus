@@ -1,6 +1,6 @@
 import type { SyntaxNode } from '../utils.js';
 import type { LanguageTypeConfig, ParameterExtractor, TypeBindingExtractor, InitializerExtractor, ClassNameLookup, ConstructorBindingScanner, ReturnTypeExtractor, PendingAssignmentExtractor, ForLoopExtractor } from './types.js';
-import { extractSimpleTypeName, extractVarName, hasTypeAnnotation, unwrapAwait, extractCalleeName, extractElementTypeFromString, extractGenericTypeArgs } from './shared.js';
+import { extractSimpleTypeName, extractVarName, hasTypeAnnotation, unwrapAwait, extractCalleeName, extractElementTypeFromString, extractGenericTypeArgs, resolveIterableElementType } from './shared.js';
 
 const DECLARATION_NODE_TYPES: ReadonlySet<string> = new Set([
   'lexical_declaration',
@@ -314,8 +314,8 @@ const findTsIterableElementType = (iterableName: string, startNode: SyntaxNode):
 const extractForLoopBinding: ForLoopExtractor = (
   node: SyntaxNode,
   scopeEnv: Map<string, string>,
-  declarationTypeNodes?: ReadonlyMap<string, SyntaxNode>,
-  scope?: string,
+  declarationTypeNodes: ReadonlyMap<string, SyntaxNode>,
+  scope: string,
 ): void => {
   if (node.type !== 'for_in_statement') return;
 
@@ -335,27 +335,10 @@ const extractForLoopBinding: ForLoopExtractor = (
   if (!rightNode || rightNode.type !== 'identifier') return;
   const iterableName = rightNode.text;
 
-  let elementType: string | undefined;
-
-  // Strategy 1: declarationTypeNodes — raw type annotation node (avoids extractSimpleTypeName stripping)
-  if (!elementType && declarationTypeNodes && scope) {
-    const typeAnnotationNode = declarationTypeNodes.get(`${scope}\0${iterableName}`);
-    if (typeAnnotationNode) {
-      elementType = extractTsElementTypeFromAnnotation(typeAnnotationNode);
-    }
-  }
-
-  // Strategy 2: scopeEnv string — for locally declared vars with container types like Array<User>
-  if (!elementType) {
-    const iterableType = scopeEnv.get(iterableName);
-    if (iterableType) elementType = extractElementTypeFromString(iterableType);
-  }
-
-  // Strategy 3: AST walk — for User[] parameters/locals where extractSimpleTypeName returned undefined
-  if (!elementType) {
-    elementType = findTsIterableElementType(iterableName, node);
-  }
-
+  const elementType = resolveIterableElementType(
+    iterableName, node, scopeEnv, declarationTypeNodes, scope,
+    extractTsElementTypeFromAnnotation, findTsIterableElementType,
+  );
   if (!elementType) return;
 
   // The loop variable is the `left` field. It may be wrapped in a variable_declarator.
